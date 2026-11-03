@@ -23,13 +23,13 @@ body {
 
 .login-box {
     width: 350px;
+    max-width: 92%;
     padding: 30px;
     background: white;
     border-radius: 12px;
     text-align: center;
 }
 
-/* Original Jatin & Anshul Logo */
 .logo {
     width: 100px;
     height: 100px;
@@ -74,9 +74,21 @@ input {
     background: #15803d;
 }
 
+.login-btn:disabled {
+    background: #86efac;
+    cursor: wait;
+}
+
+.error {
+    color: #dc2626;
+    font-size: 14px;
+    min-height: 18px;
+    margin-top: 8px;
+}
+
 .forgot {
     display: block;
-    margin-top: 18px;
+    margin-top: 14px;
     color: #15803d;
     text-decoration: none;
     font-size: 14px;
@@ -100,7 +112,7 @@ input {
 
 <div class="login-box">
 
-    <img src="logo.jpeg" class="logo" alt="Jatin & Anshul Logo">
+    <img src="/logo.jpeg" class="logo" alt="Jatin & Anshul Logo" onerror="this.style.display='none'">
 
     <h2>Attendance Manager</h2>
 
@@ -114,15 +126,19 @@ input {
             type="text"
             id="username"
             placeholder="Enter your username"
+            autocomplete="username"
             required>
 
         <input
             type="password"
             id="password"
             placeholder="Enter your password"
+            autocomplete="current-password"
             required>
 
-        <button class="login-btn" type="submit">
+        <div class="error" id="errorMsg"></div>
+
+        <button class="login-btn" id="loginBtn" type="submit">
             Login
         </button>
 
@@ -141,12 +157,37 @@ input {
 <script>
 
 document.getElementById("loginForm")
-.addEventListener("submit", function(event) {
+.addEventListener("submit", async function(event) {
 
     event.preventDefault();
 
-    alert("Login page ready! Backend connection required.");
+    const btn = document.getElementById("loginBtn");
+    const errorMsg = document.getElementById("errorMsg");
+    errorMsg.textContent = "";
+    btn.disabled = true;
+    btn.textContent = "Please wait...";
 
+    try {
+        const res = await fetch("/api/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                username: document.getElementById("username").value.trim(),
+                password: document.getElementById("password").value
+            })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            window.location.href = "/";
+            return;
+        }
+        errorMsg.textContent = data.error || "Login failed.";
+    } catch (err) {
+        errorMsg.textContent = "Server se connect nahi ho paya. Thodi der baad try karo.";
+    }
+
+    btn.disabled = false;
+    btn.textContent = "Login";
 });
 
 document.getElementById("forgotPassword")
