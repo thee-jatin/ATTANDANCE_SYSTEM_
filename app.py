@@ -1,19 +1,20 @@
+import hashlib
+import hmac
 import io
 import os
 import re
+import time
 from contextlib import closing
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pandas as pd
 import psycopg2
 import psycopg2.extras
 import xlsxwriter
-from flask import Flask, request, jsonify, send_file, send_from_directory
-from flask_cors import CORS
+from flask import Flask, request, jsonify, send_file, send_from_directory, session
 from xlsxwriter.utility import xl_col_to_name
 
 app = Flask(__name__)
-CORS(app, expose_headers=['Content-Disposition'])
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -21,6 +22,20 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL environment variable set nahi hai (Supabase connection string).")
+
+# Login: ek hi ID/password, Render ke Environment Variables se aata hai
+APP_USER = os.environ.get("APP_USER")
+APP_PASSWORD = os.environ.get("APP_PASSWORD")
+if not APP_USER or not APP_PASSWORD:
+    raise RuntimeError("APP_USER aur APP_PASSWORD environment variable set nahi hain (login ke liye).")
+
+app.config.update(
+    SECRET_KEY=os.environ.get("SECRET_KEY") or hashlib.sha256((DATABASE_URL + APP_PASSWORD).encode()).hexdigest(),
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_SECURE=bool(os.environ.get("RENDER")),  # Render par https cookie
+    PERMANENT_SESSION_LIFETIME=timedelta(days=30),
+)
 
 EXCEL_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 REQUIRED_COLUMNS = ['Roll No.', 'Name', 'Course', 'Sem', 'Stream']
@@ -92,12 +107,44 @@ def error(msg, code=500):
 
 @app.route('/')
 def index():
-    return send_from_directory(BASE_DIR, 'frontend.html')
+    page = 'frontend.html' if session.get('ok') else 'login.html'
+    resp = send_from_directory(BASE_DIR, page)
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
 
 
 @app.route('/logo.jpeg')
 def logo():
     return send_from_directory(BASE_DIR, 'logo.jpeg')
+
+
+# ---------- login ----------
+
+@app.before_request
+def require_login():
+    # /api ke saare routes login ke bina band hain (sirf /api/login khula hai)
+    if request.path.startswith('/api/') and request.path != '/api/login' and not session.get('ok'):
+        return error('Login zaroori hai.', 401)
+
+
+@app.route('/api/login', methods=['POST'])
+def login():
+    data = request.get_json(silent=True) or {}
+    user_ok = hmac.compare_digest(str(data.get('username', '')).encode(), APP_USER.encode())
+    pass_ok = hmac.compare_digest(str(data.get('password', '')).encode(), APP_PASSWORD.encode())
+    if user_ok and pass_ok:
+        session.clear()
+        session['ok'] = True
+        session.permanent = True
+        return jsonify({'message': 'ok'})
+    time.sleep(1)  # galat try par thoda rukawat
+    return error('Username ya password galat hai.', 401)
+
+
+@app.route('/api/logout', methods=['POST'])
+def logout():
+    session.clear()
+    return jsonify({'message': 'ok'})
 
 
 # ---------- students ----------
